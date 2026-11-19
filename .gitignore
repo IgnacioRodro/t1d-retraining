@@ -1,0 +1,37 @@
+# Local data and results are never versioned: everything under data/ (raw, clean,
+# features, runs, models...) except the placeholders that keep the folders
+data/**
+!data/**/
+!data/**/.gitkeep
+results/*
+!results/.gitkeep
+results_*/
+logs/
+DATASETS/
+
+# Data files and archives anywhere in the project (results tarballs, release zips)
+*.parquet
+*.pkl
+*.tar.gz
+*.tgz
+*.zip
+*.rar
+
+# The authors' working log (in Spanish, with server paths) stays out of the public repository
+HANDOFF.md
+
+# Machine-specific configuration
+config/paths.yaml
+config/environment.local.json
+
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+.venv-t1d/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Patient lists of the cohorts and groups, written by script 04 from the data (not published; the draw is
+# reproducible from the seed, D12)
+config/splits/

@@ -1,0 +1,40 @@
+# Single Python environment for the whole project (Python 3.12 recommended).
+# Versions verified on PyPI in October 2026. Install with:
+#   python -m pip install -r environment/requirements.txt
+#   python -m pip install -e .
+# On a CUDA server, install the CUDA build of torch FIRST from the PyTorch index
+# (for example: pip install "torch>=2.10,<2.12" --index-url https://download.pytorch.org/whl/cu128)
+# and then this file; on Windows/macOS laptops the default PyPI torch is fine.
+# If pip cannot resolve the foundation-model block together with the rest,
+# move that block to a second environment (see HANDOFF.md, section 10).
+
+# Core scientific stack
+numpy>=2.2.5,<3
+pandas==2.3.3            # statsforecast and mlforecast require pandas < 3
+pyarrow>=15
+scipy
+statsmodels==0.15.0
+scikit-learn>=1.4,<1.8   # granite-tsfm requires < 1.8
+joblib>=1.4              # parallel execution on all cores minus the reserve (rule R5)
+matplotlib
+pyyaml
+psutil
+openpyxl
+striprtf                 # plain text from the RTF ReadMe files of JAEB datasets
+tqdm
+scikit-posthocs
+pytest                   # unit tests in tests/ (python -m pytest tests)
+
+# Forecasting libraries
+statsforecast==2.1.1
+mlforecast==1.1.0
+lightgbm==4.7.0
+neuralforecast==3.3.0
+river==0.26.1
+mapie==1.6.0
+
+# Deep learning and foundation models
+torch>=2.10,<2.12        # neuralforecast needs >= 2.9.1; granite-tsfm needs < 2.12
+chronos-forecasting==2.3.2
+timesfm==3.0.2           # TimesFM 2.5 checkpoint (Apache-2.0); do not use the TimesFM 3.0 weights (non-commercial)
+granite-tsfm==0.3.11     # Tiny Time Mixers

@@ -1,0 +1,28 @@
+# Local folders of the raw datasets and of the derived data.
+# Copy this file to config/paths.yaml and set the folder where each dataset is
+# unzipped. Leave a value empty to skip that dataset.
+#
+# Paths can be absolute or relative. Relative paths are resolved against the
+# folder that contains this YAML file (config/), not against the folder you run
+# the scripts from. With the datasets inside the project, under data/raw/:
+#   replace_bg: ../data/raw/REPLACE-BG
+# Absolute examples: /home/me/datasets/REPLACE-BG  or  C:/Users/me/datasets/REPLACE-BG
+# (on Windows use forward slashes, or quote the path).
+#
+# config/paths.yaml is machine specific and must not be shared or versioned.
+
+datasets:
+  replace_bg:   ../data/raw/REPLACE-BG      # JAEB public dataset (unzipped)
+  dclp3:        ../data/raw/DCLP3           # JAEB public dataset (unzipped)
+  loop:         ../data/raw/Loop            # JAEB public dataset (unzipped)
+  hupa_ucm:     ../data/raw/HUPA-UCM        # Mendeley Data (contains Preprocessed/ and Raw_Data/)
+  brist1d_open: ../data/raw/BrisT1D         # University of Bristol, open part
+  t1d_uom:      ../data/raw/T1D-UOM         # Zenodo record 17361905
+  diadata:      ../data/raw/DiaData         # Zenodo record 17285631 (CGM only)
+
+storage:
+  # Derived data (processed tables, features, model runs, checkpoints): many GB
+  # and many files. If the project lives in a cloud-synced folder (Google Drive,
+  # OneDrive, Dropbox), point this to a fast local disk; on a compute server,
+  # point it to the scratch disk. Default: ../data (inside the project).
+  derived_data: ../data

@@ -1,0 +1,492 @@
+# Global experimental settings.
+# Values marked "provisional" are fixed for good by the script named next to
+# them; once fixed, any change must be recorded in HANDOFF.md (decision log).
+
+random_seed: 20261026
+
+# Compute policy (rule R5): use all available cores except a reserve, and the
+# GPU whenever one is present. Override the worker count with T1D_N_WORKERS.
+compute:
+  reserve_cores: 2
+  prefer_gpu: true
+  gpu_slots_per_gpu: 6           # processes computing on one GPU at the same time (D73); env T1D_GPU_SLOTS wins
+
+# Forecasting setup
+horizons_min: [30, 60, 120]          # evaluated horizons
+screening_horizons_min: [30, 60]     # horizons used in the screening stages
+origin_stride_min_screen: 30         # one forecast origin every 30 minutes in the screening stages
+origin_stride_min_confirm: 15        # one forecast origin every 15 minutes in the confirmation
+lookback_hours: 6                    # input window of the learned models (provisional, 11)
+fm_default_context_hours: 24         # default context of foundation models (varied in stage 3)
+
+# Day-level structure
+warmup_days: 14                      # first personal training period
+stage1_anchor_days: [14, 42, 70, 98] # training anchors for the ageing curves
+valid_day_min_cgm_coverage: 0.70     # a day counts if >= 70 % of expected CGM readings exist (fixed by 03, D45)
+min_valid_days_core: 42              # eligibility: >= 42 valid days of the kind needed (fixed by 03, D48)
+
+# Patient groups in the core dataset (fixed by script 04, D12). The groups are
+# drawn once, among the patients eligible over the whole follow-up, and saved
+# in config/splits/<dataset>.yaml; later runs of script 04 keep them, and only
+# --reassign redraws them.
+core_dataset: replace_bg
+
+# Inputs as a factor of the whole study (D90): every model that reads insulin and carbohydrates and goes on to stages
+# 1-3 has a twin that reads the glucose only (name suffix _noexog: no IOB, COB, insulin activity, carbohydrate
+# absorption or time of day), which runs exactly as its full model does; selections are made on the full models.
+glucose_only_twins:
+  enabled: true
+  families: [lightgbm, nhits, tide, tsmixerx, lstm]   # fine-tuned learned models with a twin (script 11 trains their
+                                                      # population models); ARX always has one; PatchTST, AR(3) and
+                                                      # the foundation models read the glucose only
+groups:
+  pool: 60      # hyper-parameter tuning and population pre-training; never evaluated
+  screen: 40    # screening stages 0-3
+  # remaining eligible patients -> confirm (hold-out)
+group_strata: [arm, usable_days_tertile]
+group_balance_draws: 5000     # stratified draws; the best balanced one is kept (re-randomisation)
+group_balance_on: [age, female, hba1c, usable_days, usable_days_post, randomization_offset, mean_glucose,
+                   glucose_cv, tir_70_180, carbs_g_per_day, boluses_per_day]
+
+# Day 0 and training anchors (script 04, D51). A usable day is a valid CGM
+# day in the loop mode of the cohort, with complete insulin when the cohort
+# needs it. Day 0 is the first day from which the next train_window_days
+# calendar days hold at least min_train_usable_days usable days.
+anchors:
+  train_window_days: 14          # = warmup_days
+  min_train_usable_days: 10      # usable days needed in the window before an anchor (provisional, 21)
+  min_test_usable_days: 28       # usable days needed after an anchor (provisional, 21)
+  max_age_days: 84               # common age range of the ageing curves across anchors (fixed by 21, D78)
+core_period: post_randomization  # REPLACE-BG period of the core analysis (D52, fixed in it. 19); whole = sensitivity
+
+# Model inputs (script 05; D54-D56). Starting values agreed with the user in
+# iteration 13; stage 3 can vary them.
+features:
+  insulin_action_min: 360        # exponential insulin action curve (Loop / OpenAPS): duration ...
+  insulin_peak_min: 75           # ... and peak of activity (rapid-acting analogue)
+  insulin_delay_min: 0
+  long_acting_spread_h: 24       # a long-acting injection acts evenly over 24 h
+  carb_absorption_min: 180       # carbohydrates absorbed linearly over 3 h
+  max_interp_gap_min: 15         # inputs interpolated across gaps of up to 15 min between readings (at least one slot)
+  meal_check_min_carbs_g: 20     # meals used in the glucose-response check
+
+# Stage 0 (script 10; D58). The confirm group is never evaluated before scripts 50-51.
+stage0:
+  group: screen
+  models: [persistence, linear_extrapolation, ar3, lightgbm, nhits]
+  seeds: [1, 2, 3]               # learned models: three trainings each, for the noise floor (DMD)
+  validation_days: 2             # last days of the 14-day training window, for early stopping
+  neural_device: auto            # auto: one GPU per patient job in turn when CUDA is present, else CPU
+  min_window_share: 0.8          # share of the input window with glucose needed for a forecast
+  recent_complete_min: 30        # the last 30 min of inputs must be complete
+  train_stride_min: 5            # training samples at every slot (5-min grid)
+  bootstrap_replicates: 2000
+  arx: {forgetting: 1.0, ridge: 1.0}  # M02 (D69, D87): no forgetting; the window of each policy sets the memory
+                                      # (stage 3: every factor below 1 lost skill; 0.999 kept about 3.5 days)
+  lightgbm:                      # untuned (script 10); script 12 uses the settings chosen by script 11
+    learning_rate: 0.05
+    num_leaves: 31
+    min_data_in_leaf: 20
+    feature_fraction: 0.8
+    bagging_fraction: 0.8
+    max_rounds: 1000
+    early_stopping_rounds: 50
+  nhits:                         # untuned (script 10); script 12 uses the settings chosen by script 11
+    mlp_units: 256
+    dropout: 0.1
+    learning_rate: 0.001
+    batch_size: 256
+    max_steps: 1000
+    val_every: 50
+    patience: 5
+
+# Population models and tuning on the pool group (script 11; D62). The pool is
+# never evaluated (D12); a fixed share of it (check patients) scores every
+# candidate as a new patient would be met: zero-shot, fine-tuned on its first
+# 14 days, or trained from scratch on them, tested on its later days.
+population:
+  group: pool
+  check_share: 0.2               # pool patients held out to score the candidates
+  stride_min: 15                 # origins of the population samples (every usable day of every pool patient)
+  tuning_seed: 1                 # the final population models use the seeds of stage 0
+  candidates:                    # population models, trained on the fit patients
+    lightgbm:
+      base: {learning_rate: 0.1, feature_fraction: 0.8, bagging_fraction: 0.8, bagging_freq: 1, lambda_l2: 1.0,
+             max_rounds: 2000, early_stopping_rounds: 50}
+      grid: {num_leaves: [63, 255], min_data_in_leaf: [100, 1000]}
+    nhits:                       # level: the glucose level as an input (D64); exog fixed (D90: inputs are not tuned)
+      base: {dropout: 0.1, pooling: MaxPool1d, level: true, exog: true, learning_rate: 0.0003, batch_size: 1024,
+             max_steps: 30000, val_every: 500, patience: 8}
+      grid: {mlp_units: [256, 512]}
+    tide:                        # D68: more networks of the short list, same samples and loop as N-HiTS
+      base: {dropout: 0.1, level: true, exog: true, layers: 2, learning_rate: 0.0003, batch_size: 1024,
+             max_steps: 30000, val_every: 500, patience: 8}
+      grid: {mlp_units: [256, 512]}
+    tsmixerx:
+      base: {dropout: 0.1, level: true, exog: true, layers: 2, learning_rate: 0.0003, batch_size: 1024,
+             max_steps: 30000, val_every: 500, patience: 8}
+      grid: {mlp_units: [128, 256]}
+    lstm:
+      base: {dropout: 0.1, level: true, exog: true, layers: 2, learning_rate: 0.0003, batch_size: 1024,
+             max_steps: 30000, val_every: 500, patience: 8}
+      grid: {mlp_units: [128, 256]}
+    patchtst:                    # no exogenous inputs: reads the glucose level itself
+      base: {dropout: 0.1, layers: 3, learning_rate: 0.0003, batch_size: 1024, max_steps: 30000, val_every: 500,
+             patience: 8}
+      grid: {mlp_units: [128, 256]}
+  finetune:                      # applied to the best population candidate on each check patient's 14 days
+    lightgbm:
+      base: {num_leaves: 15, min_data_in_leaf: 50, max_rounds: 600, early_stopping_rounds: 30}
+      grid: {learning_rate: [0.01, 0.02]}
+    nhits:                       # train: all (every weight) or head (the output layer of each block)
+      base: {batch_size: 256, max_steps: 1000, val_every: 25, patience: 4}
+      grid: {train: [all, head], learning_rate: [0.00003, 0.0003]}
+    tide: &finetune_network      # the best N-HiTS setting of it. 18 (3e-5) for the other networks, all or head
+      base: {batch_size: 256, max_steps: 1000, val_every: 25, patience: 4, learning_rate: 0.00003}
+      grid: {train: [all, head]}
+    tsmixerx: *finetune_network
+    lstm: *finetune_network
+    patchtst: *finetune_network
+  scratch:                       # personal models trained on the 14 days only, on every pool patient
+    lightgbm:
+      base: {learning_rate: 0.05, feature_fraction: 0.8, bagging_fraction: 0.8, bagging_freq: 1, lambda_l2: 1.0,
+             max_rounds: 1000, early_stopping_rounds: 50}
+      grid: {num_leaves: [7, 31], min_data_in_leaf: [20, 100]}
+    nhits:
+      base: {dropout: 0.1, pooling: MaxPool1d, level: true, exog: true, learning_rate: 0.001, batch_size: 256,
+             max_steps: 2000, val_every: 25, patience: 8}
+      grid: {mlp_units: [64, 256]}
+
+# Stage 0 with the three starting points of the learned models (script 12; D62). Models whose starting point was
+# not produced by script 11 (e.g. no scratch grid for the newer networks) are skipped.
+transfer:
+  group: screen
+  models: [persistence, ar3, arx, lightgbm, lightgbm_pop, lightgbm_ft, nhits, nhits_pop, nhits_ft, tide_pop, tide_ft,
+           tsmixerx_pop, tsmixerx_ft, lstm_pop, lstm_ft, patchtst_pop, patchtst_ft]   # + glucose-only twins (D90)
+
+# Foundation models used zero-shot, the "context only" mechanism (script 13; D70). Weights from the Hugging
+# Face Hub (downloaded the first time). model_id may point to a local folder.
+foundation:
+  group: screen
+  models: [chronos2, chronos2_univariate, timesfm, ttm]
+  context_hours: 72              # glucose history read by each forecast (TTM: the 512 slots of its checkpoint)
+  batch_size: 256                # forecasts per batch at 72 h of context; longer contexts take fewer
+  workers_per_gpu: 2             # each worker keeps the models in GPU memory
+  compare_with: [lightgbm_ft, nhits_ft, tide_ft, tsmixerx_ft, lstm_ft, patchtst_ft]  # from script 12
+  settings:                      # per model, e.g. {chronos2: {model_id: amazon/chronos-2}}
+    ttm: {revision: 512-96-r2}   # D77: the r2 checkpoint for minutely to hourly data (not the library's r2.1 choice)
+
+# Stage 1, ageing (script 20; HANDOFF 7.3, D65). From every available anchor of
+# the core period, each model is tested on the max_age_days days after it in
+# three versions: frozen, rolling (last train_window_days days) and growing.
+stage1:
+  group: screen
+  periods: [post_randomization]  # core period (D52); add whole for the sensitivity analysis
+  models: [ar3, arx, lightgbm_ft, nhits_ft, tide_ft, tsmixerx_ft, lstm_ft, patchtst_ft]  # starting points: D63
+  versions: [frozen, rolling, growing]
+  seeds: [1]                     # stage 0 already measured the seed noise (DMD)
+  refresh_days: {ar3: 1, arx: 1, lightgbm: 1, lightgbm_ft: 1, nhits: 7, nhits_ft: 7, tide_ft: 7, tsmixerx_ft: 7,
+                 lstm_ft: 7, patchtst_ft: 7}  # daily for cheap models, weekly for networks
+
+# Stage 2, refit policies (script 30; HANDOFF 7.4, D79-D83, D90). Models: the shortlist of script 21 plus extra_models.
+# ARX also runs its update at every sample (policy "online", D82).
+stage2:
+  group: screen
+  periods: [post_randomization]
+  anchor_days: [14]              # D80: the 84 days after the first 14-day window (a new patient's first months)
+  extra_models: [tsmixerx_ft]    # D79: added by the user to the shortlist of script 21 (the network that ages least)
+  windows: [growing, rolling7, rolling14, rolling28, exp14]   # exp14: growing window, weights halve every 14 days
+  every: [1, 3, 7, 14]           # days between refits; "never" is always added
+  seeds: [1]
+  round1_patients: 10            # successive halving: every policy on these patients first
+  keep_share: 0.3333             # then the best third of each model's policies (plus the references) on all patients
+  triggers:                      # D81: river detectors on the per-origin drift stream; refit the next day
+    window: growing
+    detectors: [adwin, page_hinkley]
+    adwin: {delta: 0.002, clock: 48, grace_period: 96, min_window_length: 48}
+    page_hinkley: {min_instances: 96, delta: 0.02, threshold: 10.0, mode: up}
+  later_anchors:                 # D83: is the gain of refitting smaller when the first model has more history?
+    anchor_days: [42, 70]        # plus the main anchor; the first fit and the growing window start at day 0
+    policies: [never, growing_every1, growing_every7, growing_every14]   # ARX also runs online
+
+# Stage 3, how each model takes in new data (script 40; HANDOFF 7.5, D86). Every arm refits on the growing window at
+# the model's optimal interval of script 31 (confirmation.yaml); arms of sim.mechanisms.
+stage3:
+  group: screen
+  periods: [post_randomization]
+  anchor_days: [14]
+  interval_days: confirmation    # or a number of days for every model
+  seeds: [1]
+  # Arms of sim.mechanisms; every glucose-only twin runs the arms of its full model (D90). leaves_d<decay>: leaf
+  # refit, new value = decay * old + (1 - decay) * refitted (D88); online_l<factor>: update at every sample with that
+  # forgetting factor; restart_other: fine-tuning the other layers than script 11 chose (every layer or the head).
+  arms:
+    lightgbm_ft: [never, restart, warm, leaves_d0.9, leaves_d0.5, leaves_d0, scratch]
+    lstm_ft: [never, restart, restart_other, warm]
+    tide_ft: [never, restart, restart_other, warm]
+    tsmixerx_ft: [never, restart, restart_other, warm]
+    arx: [never, online_l0.99, online_l0.995, online_l0.999, online_l0.9995, online_l1]   # reference: online_l1 (D87)
+
+# Stage 3, M2: the "context only" mechanism (script 43; HANDOFF 7.5, D99). The foundation models used zero-shot read the
+# last context_days days of the patient's glucose (Chronos-2 also IOB and COB) at every origin of stage 3 (the patients,
+# anchor, test days and origins of script 40), against the learned models of script 40 frozen (never) and refitted with
+# their mechanism (mechanisms.yaml of script 41, D91). Workers per GPU and batch size as in foundation.
+stage3_context:
+  models: [chronos2, timesfm]
+  context_days: [1, 3, 7, 14]
+  ageing_reference: chronos2 14 d   # a model that cannot age: the frozen ones are measured against it
+  ageing_min_weeks: 6               # patients with fewer test weeks are left out of the slopes
+
+# Stage 3b, insulin action duration and carbohydrate absorption (script 42; HANDOFF 7.5, D89). The inputs of script 05
+# (features) again with every combination below; ARX at every sample without forgetting for each set and for the
+# patient's own set (chosen every day from its past forecasts), and LightGBM restarted with that set.
+stage3b:
+  group: screen
+  periods: [post_randomization]
+  anchor_days: [14]
+  seeds: [1]
+  insulin_action_min: [240, 300, 360, 420, 480]   # the default of features (360, 75, 180) is always included
+  insulin_peak_min: [75]
+  carb_absorption_min: [120, 180, 240]
+  arx_forgetting: 1.0            # D87
+  lightgbm: lightgbm_ft          # null: ARX only
+  interval_days: confirmation    # LightGBM's refit interval: its optimal interval of script 31, or a number of days
+
+# Confirmation (scripts 50 and 51; HANDOFF 7.6, D92). The confirm group of the core dataset (the hold-out, never used
+# before) and the cohorts of the other datasets, from day 14 of the cohort's period; every model of script 31
+# (confirmation.yaml) with never, the growing window at its optimal interval and every day (ARX also online), plus the
+# mechanism of script 41 (mechanisms.yaml) at that interval; every glucose-only twin with its full model's arms (D90).
+# Nothing is selected here. Population models of the core dataset's pool group; patients whose grid is not of
+# 5 min (Libre) are left out, as the learned models read 5-min inputs. Cohorts without insulin run only the models that
+# read the glucose only (AR(3) and the twins). Per cohort: patients (a random draw with the project seed), test_days
+# and daily (whether the every-day refit runs: the reference of the optimal interval).
+confirmation:
+  anchor_days: [14]
+  test_days: 84                  # as stages 2 and 3; per cohort test_days overrides it
+  seeds: [1]
+  event_thresholds: [70, 54]     # forecast lows (HANDOFF 7.8): sensitivity and precision below 70 and 54 mg/dL
+  cohorts:
+    - {dataset: replace_bg, cohort: core, group: confirm, period: post_randomization, daily: true}
+    - {dataset: dclp3, cohort: sap_open_insulin, period: post_randomization}     # D20: no carbohydrates in DCLP3
+    - {dataset: dclp3, cohort: clc_closed_insulin, period: post_randomization}   # closed loop (Control-IQ)
+    - {dataset: dclp3, cohort: sap_open_glucose, period: post_randomization}     # glucose only
+    - {dataset: loop, cohort: closed_insulin, period: whole, patients: 120, test_days: 252}   # long follow-up
+    - {dataset: brist1d_open, cohort: open_insulin, period: whole}
+    - {dataset: brist1d_open, cohort: closed_insulin, period: whole}
+    - {dataset: t1d_uom, cohort: open_insulin, period: whole}
+    - {dataset: t1d_uom, cohort: open_glucose, period: whole}
+
+# Q4, regularity of the patient's habits (scripts 60 and 61; HANDOFF 7.7, D94). Indices on the usable days of the
+# startup window (the window_days days before the anchor) of every patient of the confirmation (script 50); outcomes
+# from the confirmation's first outcome_days test days, for every model and its glucose-only twin.
+regularity:
+  min_meal_g: 10                 # a meal: carbohydrate entries of at least this many grams ...
+  min_bolus_u: 0.5               # ... a bolus: at least this many units ...
+  merge_min: 30                  # ... joined with the next entries within this many minutes
+  min_window_days: 7             # usable days of the startup window needed for the indices
+  outcome_days: 84               # test days of every cohort (Loop has 252) that the outcomes use
+  min_patients: 30               # an association needs at least this many patients with the index and the outcome
+  primary: [meal_time_jitter_min, bolus_time_jitter_min, glucose_profile_stability]   # D94: fixed before the analysis
+  tertile_index: glucose_profile_stability   # RMSE and Clarke zones by tertile of this index (R6)
+
+# Women and men (script 62; SAGER, D109): the outcomes of script 61 by sex, adjusted like the regularity analysis.
+sex_differences:
+  min_per_sex: 15                # a comparison needs at least this many women and this many men
+
+# Forecast lows (scripts 70 and 71; HANDOFF 7.10, D95, D96). Script 70 reads what the confirmation and stage 0 saved;
+# script 71 runs LightGBM (with a population model trained again on the pool) and ARX with a loss in which every
+# training target below the threshold weighs ``factor`` times, one run per factor, on the confirmation's patients and
+# arms of the cohorts below (never and the refit at the optimal interval; ARX also online), against script 50.
+low_glucose:
+  min_events: 20                 # per patient: lows (alarms) needed for a sensitivity (precision)
+  figure_cohort: replace_bg/core
+  loss:
+    threshold: 70                # mg/dL
+    factors: [5, 20]             # weight of a training target below the threshold (D96)
+    models: [lightgbm_ft, arx]
+    cohorts: [replace_bg/core, dclp3/clc_closed_insulin]
+
+# Recovery after real changes (script 72; HANDOFF 7.10, D97). Anchor on the first day after a change of script 04
+# (change_events) with at least min_days_each_side valid days on each side; the models trained on the window_days days
+# before it, then the confirmation's arms for test_days days. Groups: DCLP3's switch to closed loop and, as a control
+# with the same calendar and no change of loop, DCLP3's SAP arm at randomisation (both glucose only: insulin before the
+# change is mostly missing); REPLACE-BG's randomisation in the confirm group (a milder change); BrisT1D's loop and sensor
+# changes (cases). ``arm``: the trial arm; ``rule``: the usable days on both sides (data.splits.USABLE_RULES).
+recovery:
+  test_days: 42
+  min_days_each_side: 14
+  groups:
+    - {name: dclp3_to_closed_loop, dataset: dclp3, kind: loop_change, arm: CLC, rule: valid}
+    - {name: dclp3_sap_control, dataset: dclp3, kind: randomization, arm: SAP, rule: valid}
+    - {name: replace_bg_randomization, dataset: replace_bg, kind: randomization, group: confirm, rule: open_insulin}
+    - {name: brist1d_loop_change, dataset: brist1d_open, kind: loop_change, rule: insulin}
+    - {name: brist1d_sensor_change, dataset: brist1d_open, kind: sensor_change, rule: insulin}
+  daily: true                    # the every-day refit runs in every group (the fastest recovery)
+  contrast: [dclp3_to_closed_loop, dclp3_sap_control]   # change against control (difference of differences)
+  trained_after: {group: dclp3_to_closed_loop, cohort: dclp3/clc_closed_insulin}   # the same models anchored after
+  case_events: 5                 # groups with fewer events are shown event by event (case series)
+
+# Wearables, exploratory (script 73; HANDOFF 7.10, D98): LightGBM and ARX, full and glucose-only, with and without the
+# wearables at the origin, on the confirmation's cohorts that have them (5-min grids), with the confirmation's arms.
+wearables:
+  inputs: [hr_15min, steps_15min, steps_60min, kcal_15min, asleep]
+  models: [lightgbm_ft, arx]
+  cohorts:
+    - {dataset: brist1d_open, cohort: open_insulin, period: whole}
+    - {dataset: brist1d_open, cohort: closed_insulin, period: whole}
+    - {dataset: t1d_uom, cohort: open_insulin, period: whole}
+    - {dataset: t1d_uom, cohort: open_glucose, period: whole}
+    - {dataset: hupa_ucm, cohort: open_insulin, period: whole}
+  min_coverage: 0.3              # a patient enters when this share of his test origins has at least one wearable
+
+# Families against each other (script 74; HANDOFF 7.10, D103): every full model against every other on the same
+# patients and days, frozen (never) and refitted as recommended (mechanism at the optimal interval), in stage 3 and in
+# every cohort of the confirmation. Nothing is chosen.
+family_comparison:
+  models: [lightgbm_ft, lstm_ft, tide_ft, tsmixerx_ft, arx, ar3]
+  reference: lightgbm_ft         # the model the figure measures the others against (the best frozen at 30 min)
+  min_patients: 20               # smaller cohorts stay in the tables and out of the figure
+
+# The closest precedent (script 75; HANDOFF 7.10, D103): the incrementally retrained stacked LSTM of Shen and
+# Kleinberg (2025), the LSTM continued every 7 days on the last 7 days, without and with its "parameter transfer"
+# (a Welch t-test on the week's glucose skips the refit when p > 0.05), on the confirmation's patients and days.
+precedent:
+  models: [lstm_ft]              # with its glucose-only twin (IS-LSTM did best on glucose alone)
+  arms: [never, incremental_w7_every7, incremental_w7_t0.05_every7]
+  cohorts: [replace_bg/core, dclp3/sap_open_insulin, dclp3/clc_closed_insulin, dclp3/sap_open_glucose,
+            loop/closed_insulin]
+
+# Paper figures (script 90; HANDOFF 2, D102, D104): drawn from the tables of the earlier scripts, at the printed size
+# of the journal (Elsevier: 190 mm full width, 7 pt text, no title). The list and its order are the figures of the
+# "maximum" version of the paper; leave one out to skip it.
+paper_figures:
+  figures: [fig01_design, fig02_population_personal, fig03_families, fig04_ageing, fig05_policy, fig06_data,
+            fig07_mechanism, fig08_inputs, fig09_replication, fig10_closed_loop, fig11_lows]
+  min_patients: 20               # figure 3: cohorts shown next to the screening
+  small_cohorts: 10              # figure 9: cohorts with fewer patients are left to the supplement
+
+# Paper tables (script 91; HANDOFF 2, D105): the bodies of tables 1, 3 and 4 as LaTeX, from the tables of scripts 04,
+# 11, 43, 51, 73 and 74. The text no result file holds (therapy, sensor, inputs, role, recommended use) is here.
+# Inputs: G glucose, I insulin, C carbohydrates, W wearables.
+paper_tables:
+  cohorts:                       # table 1, in order; keys <dataset>/<cohort> of script 04 (REPLACE-BG: its groups)
+    - {key: replace_bg/pool, dataset: REPLACE-BG, cohort: Pool, therapy: "Pump, open loop", sensor: Dexcom G4,
+       inputs: "G, I, C", role: Population models}
+    - {key: replace_bg/screen, dataset: REPLACE-BG, cohort: Screening, therapy: "Pump, open loop", sensor: Dexcom G4,
+       inputs: "G, I, C", role: Screening}
+    - {key: replace_bg/confirm, dataset: REPLACE-BG, cohort: Held out, therapy: "Pump, open loop", sensor: Dexcom G4,
+       inputs: "G, I, C", role: "Confirmation; hypoglycemia"}
+    - {key: dclp3/sap_open_insulin, dataset: DCLP3, cohort: SAP, therapy: "Pump, open loop", sensor: Dexcom G6,
+       inputs: "G, I", role: Confirmation}
+    - {key: dclp3/sap_open_glucose, dataset: DCLP3, cohort: "SAP, glucose only", therapy: "Pump, open loop",
+       sensor: Dexcom G6, inputs: G, role: "Confirmation; control of the switch"}
+    - {key: dclp3/clc_closed_insulin, dataset: DCLP3, cohort: Control-IQ, therapy: Closed loop,
+       sensor: Dexcom G6, inputs: "G, I", role: "Confirmation; switch to closed loop"}
+    - {key: loop/closed_insulin, dataset: Loop, cohort: Loop users, therapy: Closed loop, sensor: Dexcom,
+       inputs: "G, I, C", role: "Confirmation (36 weeks)"}
+    - {key: brist1d_open/open_insulin, dataset: BrisT1D, cohort: Open loop, therapy: Open loop, sensor: Various,
+       inputs: "G, I, C, W", role: "Confirmation; wearables"}
+    - {key: brist1d_open/closed_insulin, dataset: BrisT1D, cohort: Closed loop, therapy: Closed loop, sensor: Various,
+       inputs: "G, I, C, W", role: "Confirmation; wearables"}
+    - {key: t1d_uom/open_insulin, dataset: T1D-UOM, cohort: With insulin, therapy: Injections, sensor: "CGM, 5 min",
+       inputs: "G, I, C, W", role: "Confirmation; wearables"}
+    - {key: t1d_uom/open_glucose, dataset: T1D-UOM, cohort: Glucose only, therapy: Injections, sensor: "CGM, 5 min",
+       inputs: "G, W", role: "Confirmation; wearables"}
+    - {key: hupa_ucm/open_insulin, dataset: HUPA-UCM, cohort: With insulin, therapy: "Injections or pump",
+       sensor: "Libre, Dexcom G6", inputs: "G, I, C, W", role: Wearables}
+  models:                        # table 2, in order. family: the key of script 11's chosen_settings.yaml; a row
+                                 # without start is a learned model whose starting point the pool chose (91 reads it)
+    - {family: persistence, label: Persistence, kind: "Reference: the reading at the origin", inputs: G, start: "--",
+       refits: "--", stages: All}
+    - {family: ar3, label: AR(3), kind: "Linear autoregression, iterated", inputs: G,
+       start: "Personal, least squares", refits: Batch refit, stages: "0–3, C"}
+    - {family: arx, label: ARX, kind: "Linear, one model per horizon", inputs: "G, I, C",
+       start: "Personal, least squares", refits: "Batch refit; update at every sample, forgetting 0.99 to 1",
+       stages: "0–3, C"}
+    - {family: lightgbm, label: LightGBM, kind: "Gradient-boosted trees, one per horizon", inputs: "G, I, C, T",
+       refits: "Restart; adding trees; re-estimating leaves; patient alone", stages: "0–3, C"}
+    - {family: lstm, label: LSTM, kind: "Recurrent encoder, MLP decoder", inputs: "G, I, C, T",
+       refits: "Restart; continuing; other layers", stages: "0–3, C"}
+    - {family: tsmixerx, label: TSMixerx, kind: "All-MLP mixer", inputs: "G, I, C, T",
+       refits: "Restart; continuing; other layers", stages: "0–3, C"}
+    - {family: tide, label: TiDE, kind: "MLP encoder and decoder", inputs: "G, I, C, T",
+       refits: "Restart; continuing; other layers", stages: "0–3, C"}
+    - {family: nhits, label: N-HiTS, kind: "Hierarchical MLP", inputs: "G, I, C, T", refits: "--", stages: "0–1"}
+    - {family: patchtst, label: PatchTST, kind: "Transformer on patches", inputs: G, refits: "--", stages: "0–1"}
+    - {family: chronos2, label: Chronos-2, kind: Foundation model, inputs: "G, I, C, T", start: "Pretrained, zero-shot",
+       refits: "Context of 1 to 14 days", stages: "0, 3"}
+    - {family: timesfm, label: TimesFM 2.5, kind: Foundation model, inputs: G, start: "Pretrained, zero-shot",
+       refits: "Context of 1 to 14 days", stages: "0, 3"}
+  guide_models: [lightgbm_ft, lstm_ft, tsmixerx_ft, tide_ft, arx]   # table 3, in order
+  uses:                          # table 3, last column
+    lightgbm_ft: "Best at 30 min; no GPU needed"
+    lstm_ft: "Best at 60–120 min; needs a GPU"
+    tsmixerx_ft: "Low cost; close to LightGBM at 120 min"
+    tide_ft: "Low cost; close to LightGBM at 120 min"
+    arx: "Cheapest; largest gain per second of computation"
+  replication_cohorts: [replace_bg/core, dclp3/sap_open_insulin, dclp3/sap_open_glucose, dclp3/clc_closed_insulin,
+                        loop/closed_insulin, brist1d_open/open_insulin, brist1d_open/closed_insulin,
+                        t1d_uom/open_insulin, t1d_uom/open_glucose]   # table 4, in order
+
+# Supplementary material (script 92, D111): what the paper points to and a reviewer is likely to ask for.
+supplement:
+  cohorts: [replace_bg/core, dclp3/sap_open_insulin, dclp3/sap_open_glucose, dclp3/clc_closed_insulin,
+            loop/closed_insulin, brist1d_open/closed_insulin]   # S3 and S4: confirmation cohorts with >= 10 patients
+  models: [persistence, ar3, arx, lightgbm_ft, lstm_ft, tsmixerx_ft, tide_ft]   # S3, in order (twins where no insulin)
+  lows_models: [persistence, lightgbm_ft, lstm_ft]   # S4
+  regularity:                    # S1 and figure S1
+    models: [lightgbm_ft, lstm_ft, tsmixerx_ft, tide_ft, arx, ar3]
+    outcomes: [skill_never, ageing, gain_refit, loss_daily]
+    indices:                     # the primary indices of script 61 (D94), with their name in the table
+      meal_time_jitter_min: Meal timing dispersion
+      bolus_time_jitter_min: Bolus timing dispersion
+      glucose_profile_stability: Glucose profile stability
+
+# Validation of the method (script 93, D112): the five checks of the MethodsX article.
+method_validation:
+  designs:                       # 1. common evaluation designs against the simulator (sim.naive_splits)
+    models: [lightgbm_ft, arx]   # models that learn from the samples, so they can be fitted on a record with holes
+    refit_every: {lightgbm_ft: 3, arx: 1}   # days; used only when confirmation.yaml of script 31 is missing
+    held_out_share: 0.2          # share of the test origins, test days or record that each design holds out
+    determinism_patients: 2      # patients per model run twice from scratch (and against the cached run)
+  ageing:                        # 2. the ageing estimator of script 43 on synthetic cohorts with a known loss
+    model: lightgbm_ft never     # frozen model of script 40 whose real daily skill calibrates the noise
+    reference: chronos2 14 d     # the model that cannot age (ageing_reference of stage3_context)
+    horizon_min: 60              # horizon of the calibration
+    min_origins_per_day: 12      # as stage1_analysis
+    correlations: [0.0, 0.2, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]   # of the daily skill of model and reference (plus the real one)
+    slopes_pp_per_week: [0.0, -0.1, -0.2]            # true change of the frozen model's skill
+    repetitions: 200             # synthetic cohorts per setting
+    patients: 38                 # as the screening patients of script 43
+    days: 84                     # test days (as anchors.max_age_days)
+    min_weeks: 6                 # as stage3_context.ageing_min_weeks
+    bootstrap_replicates: 1000
+    defaults: {day_sd: 0.12, reference_sd: 0.12, correlation: 0.7, phi: 0.3, slope_sd_pp: 0.3}   # without 40 and 43
+  verdicts:                      # 3. the tie rule with the DMD on null comparisons (stage 0, script 12)
+    period: post_randomization
+    effects_dmd: [0, 0.5, 1, 1.5, 2, 3]   # added differences, in multiples of the comparison's DMD
+    effects_pp: [0.25, 0.5, 1.0]           # and in percentage points
+  pairing:                       # 4. paired against unpaired designs
+    crossover_draws: 20          # random splits of each patient's days between two arms
+
+# Stage 2 analysis (script 31; HANDOFF 7.4, D83, D84): growth of the gain, optimal interval, later anchors.
+stage2_analysis:
+  min_origins_per_day: 12        # as in stage 1: days with fewer origins are left out of the daily curves
+  skill_clip: [-1.0, 1.0]
+  intervals: [1, 3, 7, 14]       # growing window every k days, each against every day (optimal interval, D84)
+
+# Stage 1 analysis (script 21; HANDOFF 7.3, D78): mixed models of the daily skill, useful life, screening 1.
+stage1_analysis:
+  min_origins_per_day: 12        # days with fewer origins (6 h of origins every 30 min) are left out
+  skill_clip: [-1.0, 1.0]        # daily skill clipped (days where persistence is almost exact)
+  per_mechanism: 2               # screening 1: the best models of each mechanism that pass
+
+# Evaluation metrics (rule R6): every model evaluation reports RMSE and the
+# share of forecasts in each Clarke Error Grid zone, and saves what is needed
+# to redraw the grid (src/t1dretrain/eval/metrics.py).
+evaluation:
+  clarke_bin_mgdl: 5            # 2-D histogram of (reference, forecast) in 5 mg/dL bins, saved as a sparse CSV
+  clarke_point_sample: 20000    # random (reference, forecast) pairs saved per figure panel (scatter version)
+
+# Noise floor
+noise_floor_seeds: 3

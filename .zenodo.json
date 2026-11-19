@@ -1,0 +1,42 @@
+{
+  "upload_type": "software",
+  "title": "t1d-retraining: a leakage-free longitudinal protocol to evaluate when and how to update personalized glucose forecasters",
+  "description": "Code of a longitudinal evaluation of when and how to update personalized glucose forecasters in type 1 diabetes: a leakage-free day-by-day simulator, staged screening of refit policies and update mechanisms, confirmation under pre-specified rules in several public datasets, and the analyses and figures of the companion articles. No patient data are included; the datasets are requested from their sources.",
+  "creators": [
+    {
+      "name": "Rodríguez-Rodríguez, Ignacio",
+      "orcid": "0000-0002-0118-3406",
+      "affiliation": "Department of Communications Engineering, University of Málaga"
+    },
+    {
+      "name": "Rodríguez, José-Víctor",
+      "orcid": "0000-0002-3298-6439",
+      "affiliation": "Department of Information and Communication Technologies, Technical University of Cartagena"
+    },
+    {
+      "name": "Campo-Valera, María",
+      "orcid": "0000-0003-0084-3844",
+      "affiliation": "School of Engineering and Technology (ESIT), International University of La Rioja (UNIR)"
+    },
+    {
+      "name": "Frisa-Rubio, Alberto",
+      "orcid": "0000-0002-9059-2569",
+      "affiliation": "Research Centre for Energy Resources and Consumption (CIRCE)"
+    },
+    {
+      "name": "Gallego-Molina, Nicolás J.",
+      "orcid": "0000-0002-6536-9234",
+      "affiliation": "Department of Communications Engineering, University of Málaga"
+    }
+  ],
+  "license": "MIT",
+  "access_right": "open",
+  "keywords": [
+    "type 1 diabetes",
+    "glucose forecasting",
+    "continual learning",
+    "model updating",
+    "concept drift",
+    "personalization"
+  ]
+}

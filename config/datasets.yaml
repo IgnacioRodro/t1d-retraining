@@ -1,0 +1,134 @@
+# Static facts about each dataset and its role in the study.
+# "known_files" lists what earlier work reports; script 01 (raw inventory)
+# confirms or corrects it, and the loaders in src/t1dretrain/io/ are written
+# from the inventory, not from these notes. "dates" says whether calendar
+# effects (weekday, season) can be studied (decision D24).
+
+datasets:
+  replace_bg:
+    full_name: REPLACE-BG
+    role: core                      # screening and confirmation of stages 0-3
+    loop: open                      # insulin pumps without automated delivery
+    cgm: Dexcom G4 Platinum
+    native_interval_min: 5
+    glucose_units: mg/dL
+    follow_up: 26 weeks
+    access: JAEB form and terms (no account)
+    landing_url: https://public.jaeb.org/dataset/546
+    license: JAEB terms of use, attribution text required
+    known_files:
+      - "Data Tables/HDeviceCGM.txt (PtID, DeviceDtTmDaysFromEnroll, DeviceTm, RecordType, GlucoseValue)"
+    dates: relative to enrolment (synthetic base date 2000-01-01 in the processed tables)
+    notes:
+      - Timestamps are relative (days from enrolment + time of day).
+      - RecordType separates CGM readings from calibrations.
+      - Bolus and basal Duration in ms (Tidepool) or minutes (Diasend), by the documented rule (D33).
+      - HDeviceWizard CarbInput is in grams, except 3 patients whose pumps were set to carbohydrate exchanges;
+        the wizard arithmetic (RecommendedCarb vs CarbInput and InsulinCarbRatio) tells them apart and exchanges
+        are converted at 15 g (D57).
+      - Follow-up in the processed data (script 03): about 69 valid days before randomisation (run-in and,
+        in 106 of 226 patients, history from before enrolment uploaded from the devices) and about 26 weeks
+        after. Randomisation is a candidate real change event; the core period is decided after script 04 (D52).
+
+  dclp3:
+    full_name: DCLP3
+    role: confirm_open_loop_and_closed_loop   # SAP arm = second open-loop set; Control-IQ arm = closed loop
+    loop: mixed
+    cgm: Dexcom G6
+    native_interval_min: 5
+    glucose_units: mg/dL
+    follow_up: 26 weeks
+    access: JAEB form and terms (no account)
+    landing_url: https://public.jaeb.org/dataset/573
+    license: JAEB terms of use, attribution text required
+    dates: de-identified (shifted)
+    known_files:
+      - "Data Files/cgm.txt (PtID, Period, DataDtTm like 11DEC17:23:59:25, CGM) - analysis CGM of both arms"
+      - "Data Files/Pump_BasalRateChange.txt, Pump_BolusDelivered.txt (study t:slim X2; DataDtTm_adjusted)"
+      - "Data Files/RocheMeter_a.txt (Carbs, optional)"
+    notes:
+      - No carbohydrates at all in the public tables (D20) - the optional meter Carbs field is empty.
+      - Pump insulin for the 112 CLC patients and 13 of the 56 SAP patients (D32).
+
+  loop:
+    full_name: Loop Observational Study
+    role: closed_loop_secondary     # ageing under automated delivery (about 12 months)
+    loop: closed
+    cgm: Dexcom
+    native_interval_min: 5
+    glucose_units: mg/dL
+    follow_up: about 12 months
+    access: JAEB form and terms (no account)
+    landing_url: https://public.jaeb.org/dataset/560
+    license: JAEB terms of use, attribution text required
+    dates: shifted by a random offset of up to 365 days per participant (no weekday or season effects)
+    notes:
+      - Local time = DeviceDtTm, else UTC + the offset observed on device clocks nearest in time (14 days), else UTC + PtRoster.PtTimezoneOffset (D31).
+      - CGM in mmol/L from Tidepool (factor 18.01559); two streams per reading (HealthKit and direct upload, D37).
+
+  hupa_ucm:
+    full_name: HUPA-UCM Diabetes Dataset
+    role: external_short_and_case_studies
+    loop: open
+    cgm: FreeStyle Libre 2 (HUPA0027P uses Dexcom)
+    native_interval_min: 15
+    glucose_units: mg/dL
+    follow_up: median 13 days; 3 long patients (90, 141, 574 days)
+    access: open (CC BY 4.0)
+    landing_url: https://data.mendeley.com/datasets/3hbcscwz44/1
+    license: CC BY 4.0
+    use_raw: true                   # the preprocessed grid has no gaps (fully interpolated)
+    long_patients: [HUPA0026P, HUPA0027P, HUPA0028P]
+    known_files:
+      - "Preprocessed/HUPA00xxP.csv (time;glucose;calories;heart_rate;steps;basal_rate;bolus_volume_delivered;carb_input)"
+      - "Raw_Data/HUPA00xxP/{free_style_sensor,fitbit,medtronic_insulin_pump,roche_insulin_pump,dexcom}/"
+    dates: real
+    notes:
+      - Hybrid use (D27) - glucose from Raw_Data (Libre history and scans, Medtronic Enlite for HUPA0001P, Dexcom for HUPA0027P); insulin and carbs from Preprocessed; Fitbit from Raw_Data.
+      - carb_input is in 10 g servings for most patients and in grams for HUPA0002P, 0004P, 0011P, 0022P (inferred per patient, D28).
+      - Preprocessed basal_rate = basal units per 5-min slot.
+      - Raw device exports include history outside the study window (D30).
+      - Fitbit sleep files exist for all 25 patients in Raw_Data.
+
+  brist1d_open:
+    full_name: BrisT1D (open part)
+    role: wearables_and_change_points
+    loop: mostly_closed             # 5 participants switch to closed loop during the study
+    cgm: Dexcom G6, FreeStyle Libre 2, Guardian 4, Dexcom One
+    native_interval_min: 5
+    glucose_units: mmol/L
+    follow_up: about 6 months
+    access: open (CC BY 4.0)
+    landing_url: https://data.bris.ac.uk/data/dataset/33z5jc8fa6tob21ptrugzqog08
+    license: CC BY 4.0
+    known_files:
+      - "device_data/processed_state/PXX.csv (timestamp, bg, insulin, carbs, hr, dist, steps, cals, activity, device)"
+    dates: real
+    notes:
+      - Carbohydrates only when the bolus calculator was used (under-recorded).
+      - insulin = total pump insulin of the previous 5 minutes (stored as kind total_5min).
+
+  t1d_uom:
+    full_name: T1D-UOM
+    role: confirm_candidate         # MDI and pumps with Garmin wearables (D21)
+    loop: mixed                     # 5-min basal records suggest automated delivery in some patients (D29)
+    native_interval_min: 5
+    glucose_units: mmol/L
+    dates: real (day-first time stamps although the README says MM/DD/YYYY)
+    notes:
+      - Heart rate of the Garmin 5-min epoch files is not used - no night-time dip at any clock shift (D39).
+      - Steps and active kcal from the 15-min activity epochs; sleep stages from the nightly summaries.
+    follow_up: about 12 weeks
+    access: open (CC BY 4.0)
+    landing_url: https://zenodo.org/records/17361905
+    license: CC BY 4.0
+
+  diadata:
+    full_name: DiaData
+    role: reserve                   # CGM only; contains REPLACE-BG, DCLP3 and HUPA-UCM, so never use it to pre-train models evaluated on those
+    loop: mixed
+    native_interval_min: 5
+    glucose_units: mg/dL
+    access: open (CC BY-NC 4.0)
+    landing_url: https://zenodo.org/records/17285631
+    license: CC BY-NC 4.0

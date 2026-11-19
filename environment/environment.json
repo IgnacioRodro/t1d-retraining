@@ -1,0 +1,23 @@
+{
+  "_comment": "Project environment created by scripts/00_check_environment.py. JSON so it can be read before any package is installed.",
+  "manager": "conda",
+  "env_name": "t1d",
+  "python": "3.12",
+  "conda_channel": "conda-forge",
+  "requirements": "environment/requirements.txt",
+  "torch_cuda_indexes": {
+    "cu130": "https://download.pytorch.org/whl/cu130",
+    "cu128": "https://download.pytorch.org/whl/cu128",
+    "cu126": "https://download.pytorch.org/whl/cu126",
+    "cpu": "https://download.pytorch.org/whl/cpu"
+  },
+  "import_names": {
+    "scikit-learn": "sklearn",
+    "pyyaml": "yaml",
+    "striprtf": "striprtf.striprtf",
+    "scikit-posthocs": "scikit_posthocs",
+    "chronos-forecasting": "chronos",
+    "granite-tsfm": "tsfm_public",
+    "pytorch-lightning": "pytorch_lightning"
+  }
+}

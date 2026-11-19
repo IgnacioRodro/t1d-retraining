@@ -1,0 +1,41 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "t1d-retraining: a leakage-free longitudinal protocol to evaluate when and how to update personalized glucose forecasters"
+type: software
+version: 1.0.0
+date-released: "2026-11-19"
+license: MIT
+authors:
+  - given-names: Ignacio
+    family-names: Rodríguez-Rodríguez
+    affiliation: "Department of Communications Engineering, University of Málaga"
+    orcid: "https://orcid.org/0000-0002-0118-3406"
+  - given-names: José-Víctor
+    family-names: Rodríguez
+    affiliation: "Department of Information and Communication Technologies, Technical University of Cartagena"
+    orcid: "https://orcid.org/0000-0002-3298-6439"
+  - given-names: María
+    family-names: Campo-Valera
+    affiliation: "School of Engineering and Technology (ESIT), International University of La Rioja (UNIR)"
+    orcid: "https://orcid.org/0000-0003-0084-3844"
+  - given-names: Alberto
+    family-names: Frisa-Rubio
+    affiliation: "Research Centre for Energy Resources and Consumption (CIRCE)"
+    orcid: "https://orcid.org/0000-0002-9059-2569"
+  - given-names: Nicolás J.
+    family-names: Gallego-Molina
+    affiliation: "Department of Communications Engineering, University of Málaga"
+    orcid: "https://orcid.org/0000-0002-6536-9234"
+abstract: >-
+  Code of a longitudinal evaluation of when and how to update personalized glucose
+  forecasters in type 1 diabetes: a leakage-free day-by-day simulator, staged screening
+  of refit policies and update mechanisms, confirmation under pre-specified rules in
+  several public datasets, and the analyses and figures of the companion articles.
+  No patient data are included; the datasets are requested from their sources.
+keywords:
+  - type 1 diabetes
+  - glucose forecasting
+  - continual learning
+  - model updating
+  - concept drift
+  - personalization
