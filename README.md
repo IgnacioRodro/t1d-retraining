@@ -1,5 +1,7 @@
 # t1d-retraining
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24375736.svg)](https://doi.org/10.5281/zenodo.24375736)
+
 How often, with which data window and by which mechanism should a personalised
 glucose forecasting model be re-adapted to the patient's own data? This project
 studies model ageing, retraining policies and adaptation mechanisms on public
@@ -371,5 +373,8 @@ the environment variable `T1D_GPU_SLOTS` overrides it for one run (for example
 
 The code is released under the MIT License (`LICENSE`); the bundled Liberation
 Sans fonts keep their SIL Open Font License 1.1. To cite the software, use
-`CITATION.cff` (GitHub shows it as *Cite this repository*); each release is
-archived in Zenodo with its own DOI.
+`CITATION.cff` (GitHub shows it as *Cite this repository*). Every release is
+archived in Zenodo: the DOI 10.5281/zenodo.24375736
+(https://doi.org/10.5281/zenodo.24375736) covers all versions and resolves to
+the latest; release 1.0.0, the one used in the companion articles, is
+10.5281/zenodo.24375737 (https://doi.org/10.5281/zenodo.24375737).

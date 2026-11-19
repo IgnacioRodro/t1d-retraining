@@ -24,6 +24,10 @@ HANDOFF.md
 config/paths.yaml
 config/environment.local.json
 
+# Patient lists of the cohorts and groups, written by script 04 from the data (not published; the draw is
+# reproducible from the seed, D12)
+config/splits/
+
 # Python
 __pycache__/
 *.egg-info/
@@ -31,7 +35,3 @@ __pycache__/
 .venv-t1d/
 .ipynb_checkpoints/
 .pytest_cache/
-
-# Patient lists of the cohorts and groups, written by script 04 from the data (not published; the draw is
-# reproducible from the seed, D12)
-config/splits/
